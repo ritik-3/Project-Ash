@@ -23,6 +23,24 @@ dist/
 .project_ash/
 *.log
 
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+frontend/*.tsbuildinfo
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Local config and env
+.env
+.env.*
+!.env.example
+configs/app_config.json
+!configs/app_config.example.json
+
 # Editor and OS files
 .vscode/
 .idea/
