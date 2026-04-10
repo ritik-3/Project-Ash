@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
+
+import speech_recognition as sr
 
 
 @dataclass
@@ -39,3 +42,23 @@ class FasterWhisperSTT:
         text = " ".join(segment.text.strip() for segment in segments).strip()
         confidence = float(getattr(info, "language_probability", 0.0) or 0.0)
         return WhisperTranscript(text=text, confidence=confidence)
+
+    def listen_once(self) -> WhisperTranscript:
+        recognizer = sr.Recognizer()
+        with sr.Microphone() as source:
+            recognizer.adjust_for_ambient_noise(source, duration=0.4)
+            audio = recognizer.listen(source, timeout=8, phrase_time_limit=12)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            temp_audio.write(audio.get_wav_data())
+            temp_path = temp_audio.name
+
+        try:
+            return self.transcribe_file(temp_path)
+        except Exception:
+            return WhisperTranscript(text="", confidence=0.0)
+        finally:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass

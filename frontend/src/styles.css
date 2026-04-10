@@ -1,0 +1,65 @@
+:root {
+  color-scheme: light;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #f4f8ff 0%, #eff5f2 100%);
+  color: #0f172a;
+}
+
+body {
+  margin: 0;
+}
+
+.layout {
+  max-width: 980px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.card {
+  background: #ffffffcc;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  padding: 1rem;
+  backdrop-filter: blur(6px);
+}
+
+.form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid #94a3b8;
+  padding: 0.75rem;
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+  background: #0f766e;
+  color: white;
+}
+
+button[type='button'] {
+  background: #334155;
+}
+
+ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}

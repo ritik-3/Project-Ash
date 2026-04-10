@@ -1,4 +1,15 @@
 {
-  "enable_tts": false,
-  "log_dir": ".project_ash"
+  "enable_tts": true,
+  "log_dir": ".project_ash",
+  "sqlite_db_path": ".project_ash/ash_memory.db",
+  "ollama_model": "llama3.1:8b-instruct-q4_K_M",
+  "faster_whisper_model": "small",
+  "faster_whisper_device": "cuda",
+  "piper_model_path": null,
+  "piper_exe": "piper",
+  "playwright_user_data_dir": ".project_ash/playwright-profile",
+  "playwright_headless": false,
+  "playwright_timeout_ms": 15000,
+  "api_host": "127.0.0.1",
+  "api_port": 8000
 }

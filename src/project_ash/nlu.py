@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+from typing import Any
 
 from project_ash.models import IntentType, ParsedIntent
 
@@ -23,6 +25,59 @@ def normalize_text(text: str) -> str:
 
 def parse_intent(text: str) -> ParsedIntent:
     normalized = normalize_text(text)
+
+    if any(token in normalized for token in ["type ", "write in app", "type this"]) and "email" not in normalized:
+        payload = text.strip()
+        for marker in ["type ", "type this ", "write in app "]:
+            if normalized.startswith(marker):
+                payload = text[len(marker) :].strip()
+                break
+        return ParsedIntent(
+            intent=IntentType.TYPE_IN_ACTIVE_WINDOW,
+            entities={"text": payload},
+            confidence=0.8,
+            normalized_text=normalized,
+        )
+
+    if any(token in normalized for token in ["gmail", "email draft", "draft mail", "draft email"]):
+        entities: dict[str, str] = {"prompt": text.strip()}
+        to_match = re.search(r"to\s+([a-zA-Z0-9_.@+-]+)", text)
+        if to_match:
+            entities["to"] = to_match.group(1)
+        return ParsedIntent(
+            intent=IntentType.DRAFT_GMAIL,
+            entities=entities,
+            confidence=0.84,
+            normalized_text=normalized,
+        )
+
+    if any(token in normalized for token in ["google sheet", "spreadsheet"]) and any(
+        token in normalized for token in ["create", "new"]
+    ):
+        title = "Untitled Sheet"
+        title_match = re.search(r"(?:called|named|title)\s+(.+)$", text, flags=re.IGNORECASE)
+        if title_match:
+            title = title_match.group(1).strip()
+        return ParsedIntent(
+            intent=IntentType.CREATE_GOOGLE_SHEET,
+            entities={"title": title},
+            confidence=0.8,
+            normalized_text=normalized,
+        )
+
+    if any(token in normalized for token in ["google sheet", "spreadsheet", "sheet"]) and any(
+        token in normalized for token in ["add row", "insert row", "add to sheet"]
+    ):
+        row_text = text.strip()
+        row_match = re.search(r"(?:add row|insert row|add to sheet)[:\s]+(.+)$", text, flags=re.IGNORECASE)
+        if row_match:
+            row_text = row_match.group(1).strip()
+        return ParsedIntent(
+            intent=IntentType.ADD_GOOGLE_SHEET_ROW,
+            entities={"row_text": row_text},
+            confidence=0.78,
+            normalized_text=normalized,
+        )
 
     if any(token in normalized for token in ["what is on my screen", "screen", "on screen"]):
         return ParsedIntent(
@@ -88,3 +143,39 @@ def parse_intent(text: str) -> ParsedIntent:
         confidence=0.3,
         normalized_text=normalized,
     )
+
+
+def parse_intent_with_ollama(text: str, llm_client: Any) -> ParsedIntent | None:
+    normalized = normalize_text(text)
+    prompt = (
+        "Classify this user command into one intent and entities. "
+        "Return only compact JSON with keys: intent, entities, confidence. "
+        "Allowed intents: open_app, open_website, screen_summary, draft_message, "
+        "create_sheet, add_sheet_row, search_web, unknown. "
+        f"User command: {text}"
+    )
+
+    response = llm_client.generate(prompt, temperature=0.0)
+    raw = response.text.strip()
+    if not raw or "unavailable" in raw.lower():
+        return None
+
+    json_match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not json_match:
+        return None
+
+    try:
+        payload = json.loads(json_match.group(0))
+        intent_name = str(payload.get("intent", "unknown")).lower().strip()
+        intent = IntentType(intent_name) if intent_name in {i.value for i in IntentType} else IntentType.UNKNOWN
+        entities = payload.get("entities") if isinstance(payload.get("entities"), dict) else {}
+        confidence = float(payload.get("confidence", 0.65))
+
+        return ParsedIntent(
+            intent=intent,
+            entities=entities,
+            confidence=max(0.0, min(confidence, 1.0)),
+            normalized_text=normalized,
+        )
+    except (ValueError, json.JSONDecodeError, TypeError):
+        return None

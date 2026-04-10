@@ -12,10 +12,12 @@ Planning documentation is complete and connected to implementation artifacts.
 
 - Python package scaffold under `src/project_ash`.
 - Text and push-to-talk voice input modes.
+- Voice path uses faster-whisper primary STT with fallback.
 - Natural language intent parsing for common daily commands.
+- Ollama Llama 3.1-assisted planning/response path with rule-based fallback.
 - Risk classification with confirmation gates.
 - Planner, executor, and orchestrator pipeline.
-- Basic desktop/browser/productivity skill adapters.
+- Routed execution adapters: Playwright (browser), UIA (desktop), OCR vision fallback.
 - SQLite + FTS5 local task logs in `.project_ash/ash_memory.db`.
 - Baseline unit tests in `tests`.
 
@@ -26,20 +28,53 @@ Planning documentation is complete and connected to implementation artifacts.
 	- `pip install -r requirements.txt`
    - Optional local AI stack: `pip install -r requirements-local-ai.txt`
    - Optional automation stack: `pip install -r requirements-automation.txt`
-   - Optional API stack: `pip install -r requirements-api.txt`
-3. Run assistant:
+   - Optional API-only stack (if you do not use the base requirements file): `pip install -r requirements-api.txt`
+3. Configure runtime (voice enabled by default):
+   - Edit `configs/app_config.json` if you want to set a Piper model path.
+   - If Piper is not configured, speech output falls back to `pyttsx3`.
+   - Playwright authenticated profile persists at `.project_ash/playwright-profile`.
+4. Run assistant:
 	- `python -m project_ash.cli`
-4. Optional local API server:
+   - First-run diagnostics: `python -m project_ash diagnostics`
+5. Optional local API server:
    - `uvicorn project_ash.api.server:app --host 127.0.0.1 --port 8000`
-5. Choose mode:
+   - Endpoints: `/health`, `/status`, `/diagnostics`, `/plan`, `/execute`, `/history`, `/assist`
+6. Optional frontend app:
+    - `cd frontend`
+    - `npm install`
+    - `npm run dev`
+    - Open `http://127.0.0.1:5173`
+   - Optional API override: set `VITE_API_BASE` (default is `http://127.0.0.1:8000`)
+7. Choose mode:
 	- `text` for chat-style control
 	- `voice` for one-shot push-to-talk command
-6. Confirm medium/high risk actions when prompted.
+8. Confirm medium/high risk actions when prompted.
+
+## Docker Quick Start
+
+- Start local stack:
+   - `docker compose up --build`
+- Services:
+   - API: `http://127.0.0.1:8000`
+   - Frontend: `http://127.0.0.1:5173`
+   - Ollama: `http://127.0.0.1:11434`
 
 ## Testing
 
-- Run unit tests:
-  - `pytest`
+- Run full test suite:
+   - `pytest -q`
+- Run diagnostics:
+   - `python -m project_ash diagnostics`
+- Build frontend (TypeScript + Vite):
+   - `cd frontend && npm run build`
+- Validate compose config:
+   - `docker compose config`
+
+## Current Verification Snapshot
+
+- Full test suite: `32 passed`.
+- Frontend production build: `passed`.
+- Docker compose configuration: `validated`.
 
 ## Planning Documents
 
@@ -62,6 +97,7 @@ Planning documentation is complete and connected to implementation artifacts.
 - [Target Tech Stack And Step-by-Step Execution Plan](docs/15-Target-Tech-Stack-and-Execution-Plan.md)
 - [Full Stack Baseline (Frontend, Backend, Infra, Docker)](docs/16-Full-Stack-Baseline.md)
 - [Agent Skills Setup (skills.sh)](docs/17-Agent-Skills-Setup.md)
+- [Later Tasks](docs/18-Later-Tasks.md)
 
 ## Suggested Review Order
 
@@ -84,6 +120,7 @@ Planning documentation is complete and connected to implementation artifacts.
 17. Target Tech Stack And Step-by-Step Execution Plan
 18. Full Stack Baseline
 19. Agent Skills Setup
+20. Later Tasks
 
 ## Approval Gate
 

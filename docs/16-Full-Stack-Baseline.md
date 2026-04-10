@@ -5,10 +5,10 @@ This document freezes the end-to-end technical stack for Project Ash local-first
 
 ## 1) Frontend Stack (Decided)
 - Framework: React + Vite + TypeScript
-- UI styling: Tailwind CSS
-- State management: Zustand
-- API client: Axios (or native fetch for lightweight endpoints)
-- Validation: Zod for request/response shape checks
+- UI styling: Plain CSS (`frontend/src/styles.css`)
+- State management: React local state/hooks
+- API client: Native fetch
+- API base URL: `VITE_API_BASE` env var (fallback `http://127.0.0.1:8000`)
 
 Why this choice:
 - Fast local development loop.
@@ -59,8 +59,10 @@ Deterministic route policy:
 ## 7) Docker Strategy (Decided)
 - Compose-based local orchestration:
   - `ash-api` (FastAPI)
+  - `ash-worker` (autonomy worker loop)
+  - `ash-scheduler` (autonomy scheduler loop)
   - `ollama` (local model runtime)
-  - Optional future `ash-ui` (React app)
+  - `ash-frontend` (React app served via nginx)
 - Persistent volumes:
   - SQLite/database files
   - Ollama model cache
@@ -71,8 +73,8 @@ Deterministic route policy:
 - Initial CI pipeline:
   - Python setup
   - Dependency install
-  - Unit tests
-  - Lint/static checks (next step)
+  - Test execution via `pytest -q`
+  - Lint/static checks (deferred)
 
 ## 8.1) Agent Skills Baseline (Decided)
 - Skills manager: skills.sh CLI via npx skills
@@ -101,7 +103,14 @@ Deterministic route policy:
 
 ## 12) Immediate Build Order
 1. Keep backend and API stable.
-2. Add frontend app and connect `/assist` endpoint.
-3. Add Docker local compose workflow.
-4. Integrate Playwright/desktop adapters under route policy.
-5. Harden observability and safety regression tests.
+2. Maintain frontend integration with `/execute` and `/status`.
+3. Keep Docker local compose workflow healthy (`docker compose config` + full stack up).
+4. Keep Playwright/desktop adapters stable under route policy.
+5. Continue hardening observability and safety regression tests.
+
+## 13) Readiness Snapshot (2026-04-11)
+- API CORS for frontend local origins is enabled.
+- Frontend response contract is aligned with backend task result payload.
+- Frontend TypeScript build baseline is valid (Vite ambient typing in place).
+- Full backend test suite status: `32 passed`.
+- Frontend production build status: `passed`.

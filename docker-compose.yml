@@ -1,11 +1,9 @@
-version: "3.9"
-
 services:
   ash-api:
     build:
       context: .
       dockerfile: Dockerfile.api
-    container_name: ash-api
+    container_name: project-ash-api
     ports:
       - "8000:8000"
     volumes:
@@ -15,9 +13,48 @@ services:
     depends_on:
       - ollama
 
+  ash-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: project-ash-worker
+    command: ["python", "-m", "project_ash.autonomy.worker_service"]
+    volumes:
+      - ./.project_ash:/app/.project_ash
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ASH_WORKER_POLL_SECONDS=5
+    depends_on:
+      - ash-api
+      - ollama
+
+  ash-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: project-ash-scheduler
+    command: ["python", "-m", "project_ash.autonomy.scheduler_service"]
+    volumes:
+      - ./.project_ash:/app/.project_ash
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ASH_SCHEDULER_POLL_SECONDS=10
+    depends_on:
+      - ash-api
+
+  ash-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: project-ash-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - ash-api
+
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: project-ash-ollama
     ports:
       - "11434:11434"
     volumes:
