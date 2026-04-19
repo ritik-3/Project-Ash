@@ -1,1 +1,0 @@
-"""Automation routing and adapters."""
