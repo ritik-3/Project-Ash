@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from project_ash.autonomy.models import ScheduleSpec
 from project_ash.autonomy.queue import JobQueue
@@ -39,10 +42,59 @@ _queue = JobQueue(_store)
 _scheduler = Scheduler(_store, _queue)
 _worker = Worker(_orchestrator, _store, _queue)
 _skill_registry = SkillRegistry(_store)
+_chat_sessions: dict[str, list[dict[str, str]]] = {}
+_chat_profile_file = Path(_cfg.log_dir) / "chat_profile.json"
+
+
+def _load_chat_profile() -> dict[str, Any]:
+    if not _chat_profile_file.exists():
+        return {
+            "display_name": "friend",
+            "style": "warm, emotionally aware, concise",
+            "about_user": [],
+            "last_updated_utc": datetime.now(timezone.utc).isoformat(),
+        }
+    try:
+        raw = json.loads(_chat_profile_file.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw
+    except (OSError, ValueError, TypeError):
+        pass
+    return {
+        "display_name": "friend",
+        "style": "warm, emotionally aware, concise",
+        "about_user": [],
+        "last_updated_utc": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _save_chat_profile(profile: dict[str, Any]) -> None:
+    profile["last_updated_utc"] = datetime.now(timezone.utc).isoformat()
+    _chat_profile_file.parent.mkdir(parents=True, exist_ok=True)
+    _chat_profile_file.write_text(json.dumps(profile, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+_chat_profile = _load_chat_profile()
 
 
 class AssistRequest(BaseModel):
     text: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    confirmed: bool = False
+    profile_name: str | None = None
+    style_hint: str | None = None
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    reply: str
+    requires_confirmation: bool = False
+    success: bool = True
+    step_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PlanRequest(BaseModel):
@@ -156,6 +208,171 @@ def assist(payload: AssistRequest) -> dict:
         "success": result.success,
         "steps": [s.model_dump() for s in result.step_results],
     }
+
+
+def _append_chat_message(session_id: str, role: str, content: str) -> None:
+    history = _chat_sessions.setdefault(session_id, [])
+    history.append({"role": role, "content": content})
+    if len(history) > 20:
+        _chat_sessions[session_id] = history[-20:]
+
+
+def _extract_profile_hints(message: str) -> dict[str, str | None]:
+    lowered = message.lower()
+    name_match = re.search(r"(?:my name is|call me|i am)\s+([a-zA-Z][a-zA-Z\s'-]{1,24})", message, re.IGNORECASE)
+    style = None
+    if "be casual" in lowered or "informal" in lowered:
+        style = "casual, friendly, light humor"
+    elif "be professional" in lowered or "formal" in lowered:
+        style = "professional, clear, respectful"
+    elif "be short" in lowered or "concise" in lowered:
+        style = "very concise, direct"
+    elif "be warm" in lowered or "empathetic" in lowered:
+        style = "warm, empathetic, supportive"
+
+    return {
+        "name": name_match.group(1).strip() if name_match else None,
+        "style": style,
+    }
+
+
+def _update_profile_from_request(payload: ChatRequest, user_message: str) -> None:
+    if payload.profile_name:
+        _chat_profile["display_name"] = payload.profile_name.strip()[:40]
+    if payload.style_hint:
+        _chat_profile["style"] = payload.style_hint.strip()[:120]
+
+    hints = _extract_profile_hints(user_message)
+    if hints.get("name"):
+        _chat_profile["display_name"] = str(hints["name"])
+    if hints.get("style"):
+        _chat_profile["style"] = str(hints["style"])
+
+    lowered = user_message.lower().strip()
+    if lowered and len(lowered) < 140 and any(token in lowered for token in ["i like", "i love", "i prefer", "i work", "i am"]):
+        about_user = _chat_profile.setdefault("about_user", [])
+        if isinstance(about_user, list) and lowered not in about_user:
+            about_user.append(lowered)
+            if len(about_user) > 12:
+                del about_user[0]
+
+    _save_chat_profile(_chat_profile)
+
+
+def _chat_system_prompt() -> str:
+    about_user = _chat_profile.get("about_user", [])
+    memories = "\n".join(f"- {item}" for item in about_user[-8:]) if isinstance(about_user, list) else "- none yet"
+    return (
+        "You are Ash, a highly intelligent personal AI assistant running locally on the user's computer.\n\n"
+        "Identity:\n"
+        "- Name: Ash\n"
+        "- Gender: Female\n"
+        "- Personality: Supportive, friendly, positive, slightly energetic\n"
+        "- Tone: Natural, conversational, confident, and helpful\n"
+        "- Avoid robotic or overly formal language\n\n"
+        "Core behavior:\n"
+        "- You are not just a chatbot; you help the user complete tasks\n"
+        "- Understand intent first, then respond clearly and concisely\n"
+        "- Be proactive and suggest better/faster approaches when useful\n"
+        "- Stay calm, polite, and encouraging\n\n"
+        "Primary role:\n"
+        "- Help user interact with their computer\n"
+        "- Prioritize ACTION over explanation when tasks are requested\n"
+        "- Support productivity, browsing, files, workflows, learning, coding\n\n"
+        "Task execution rules:\n"
+        "- If task requires action, convert to clear steps and execute with tools\n"
+        "- Work step-by-step, verify progress, retry/alternate on failure\n"
+        "- Briefly inform user what you are doing\n\n"
+        "Response style:\n"
+        "- Keep responses short and clear unless detailed explanation is asked\n"
+        "- Friendly and slightly enthusiastic\n"
+        "- Sound like a real assistant, not a textbook\n\n"
+        "Decision making:\n"
+        "- Prefer direct action over unnecessary questions\n"
+        "- Ask clarification only when truly required\n"
+        "- Prioritize efficiency and usefulness\n\n"
+        "Safety rules:\n"
+        "- Never perform dangerous or destructive actions without confirmation\n"
+        "- Avoid deleting important files or risky commands without consent\n"
+        "- Never claim success if task was not actually completed\n\n"
+        "Memory behavior:\n"
+        "- Remember user preferences and adapt over time\n"
+        "- Be consistent in tone and behavior\n\n"
+        "If something cannot be done, explain clearly and suggest alternatives.\n\n"
+        f"User preferred name: {_chat_profile.get('display_name', 'friend')}\n"
+        f"Conversation style preference: {_chat_profile.get('style', 'warm, emotionally aware, concise')}\n"
+        f"Known user facts:\n{memories}\n"
+    )
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    session_id = payload.session_id or str(uuid4())
+    user_message = payload.message.strip()
+
+    if not user_message:
+        return ChatResponse(
+            session_id=session_id,
+            reply="Please type a message so I can help.",
+            success=False,
+        )
+
+    _update_profile_from_request(payload, user_message)
+    _append_chat_message(session_id, "user", user_message)
+
+    plan = _orchestrator.create_plan(UserInput(mode=InputMode.TEXT, text=user_message))
+    is_task_request = any(step.action != "ask_clarification" for step in plan.steps)
+
+    # Task-like requests still execute through safe orchestrator paths, then are narrated naturally via LLM.
+    if is_task_request:
+        result = _orchestrator.execute_plan(plan, confirmed=payload.confirmed)
+        if _orchestrator.ollama_client is not None:
+            messages = [
+                {"role": "system", "content": _chat_system_prompt()},
+                {
+                    "role": "user",
+                    "content": (
+                        "Create a natural conversational response for this automation outcome. "
+                        "If confirmation is required, ask gently for clear confirmation.\n"
+                        f"User message: {user_message}\n"
+                        f"Execution summary: {result.summary}\n"
+                        f"Step results: {json.dumps([s.model_dump() for s in result.step_results], ensure_ascii=True)}"
+                    ),
+                },
+            ]
+            llm_reply = _orchestrator.ollama_client.chat(messages, temperature=0.55).text.strip()
+            if llm_reply and "unavailable" not in llm_reply.lower():
+                _append_chat_message(session_id, "assistant", llm_reply)
+                return ChatResponse(
+                    session_id=session_id,
+                    reply=llm_reply,
+                    requires_confirmation=(not payload.confirmed and "Confirmation required" in result.summary),
+                    success=result.success,
+                    step_results=[s.model_dump() for s in result.step_results],
+                )
+
+        _append_chat_message(session_id, "assistant", result.summary)
+        return ChatResponse(
+            session_id=session_id,
+            reply=result.summary,
+            requires_confirmation=(not payload.confirmed and "Confirmation required" in result.summary),
+            success=result.success,
+            step_results=[s.model_dump() for s in result.step_results],
+        )
+
+    # Pure conversation path: always prefer full LLM generation.
+    if _orchestrator.ollama_client is not None:
+        convo_messages = [{"role": "system", "content": _chat_system_prompt()}]
+        for turn in _chat_sessions.get(session_id, [])[-12:]:
+            convo_messages.append({"role": turn["role"], "content": turn["content"]})
+        llm_reply = _orchestrator.ollama_client.chat(convo_messages, temperature=0.7).text.strip()
+        if llm_reply and "unavailable" not in llm_reply.lower():
+            _append_chat_message(session_id, "assistant", llm_reply)
+            return ChatResponse(session_id=session_id, reply=llm_reply)
+
+    fallback_reply = "I am here with you. Tell me a bit more, and I will respond in your style."
+    _append_chat_message(session_id, "assistant", fallback_reply)
+    return ChatResponse(session_id=session_id, reply=fallback_reply)
 
 
 @app.post("/channels/webhook/{provider}")
