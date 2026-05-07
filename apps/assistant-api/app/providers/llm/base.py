@@ -1,7 +1,8 @@
-from abc import ABC, abstractmethod
+from typing import Protocol, Sequence
+
+from app.schemas.chat import ChatMessage
 
 
-class BaseLLMProvider(ABC):
-    @abstractmethod
-    async def chat(self, prompt: str) -> str:
+class BaseLLMProvider(Protocol):
+    async def chat(self, messages: Sequence[ChatMessage]) -> str:
         raise NotImplementedError

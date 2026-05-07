@@ -23,7 +23,7 @@ The repo is currently focused on the `assistant-api` service, with the full inte
 
 ```powershell
 Set-Location c:\Ashu\Project-Ash\apps\assistant-api
-..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+.\scripts\start_local.ps1
 ```
 
 The service exposes a health check at `/api/v1/health`.

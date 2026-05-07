@@ -42,6 +42,8 @@ observability/traces/
 .DS_Store
 Thumbs.db
 .idea/
+.agents/
+.continue/
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json

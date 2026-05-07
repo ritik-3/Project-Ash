@@ -7,6 +7,10 @@ sqlalchemy
 tenacity
 loguru
 rich
+httpx
+numpy
+scipy
+torch
 faster-whisper
 piper-tts
 openwakeword
@@ -17,3 +21,5 @@ playwright
 pywinauto
 pygetwindow
 pyautogui
+pytest
+tflite-runtime
