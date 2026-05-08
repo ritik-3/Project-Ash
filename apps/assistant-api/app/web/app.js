@@ -1,3 +1,8 @@
+/**
+ * Ash Assistant - Web UI Control Surface
+ * Refactored voice capture flow: browser audio → server processing
+ */
+
 const INTERACTION_MODES = {
   DIRECT_VOICE: "DIRECT_VOICE",
   AUTO_CONTINUOUS: "AUTO_CONTINUOUS",
@@ -16,7 +21,7 @@ const state = {
   sessionId: "default",
   status: "idle",
   wakeWordModel: "",
-  autoConversationEnabled: true,
+  autoConversationEnabled: false,
   autoLoopInFlight: false,
   autoLoopBackoffMs: 0,
   autoLoopLockHeld: false,
@@ -25,12 +30,6 @@ const state = {
   interactionMode: INTERACTION_MODES.DIRECT_VOICE,
   recordingState: RECORDING_STATES.IDLE,
   isSpacebarPressed: false,
-  audio: {
-    stream: null,
-    context: null,
-    analyser: null,
-    rafId: null,
-  },
 };
 
 const AUTO_LOOP_LOCK_KEY = "ash:auto-loop-owner";
@@ -40,7 +39,6 @@ const AUTO_LOOP_STALE_MS = 6000;
 // DOM Elements
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
-const orb = document.getElementById("orb");
 const statusIndicator = document.getElementById("statusIndicator");
 const statusIndicatorText = document.getElementById("statusIndicatorText");
 const meterFill = document.getElementById("meterFill");
@@ -48,9 +46,13 @@ const chatLog = document.getElementById("chatLog");
 const textInput = document.getElementById("textInput");
 const sendButton = document.getElementById("sendButton");
 const dockMicBtn = document.getElementById("dockMicBtn");
-const micButton = document.getElementById("micButton"); // The visualizer toggle
+const micButton = document.getElementById("micButton");
 const wakeToggle = document.getElementById("wakeToggle");
 const segments = document.querySelectorAll(".segment");
+
+// ============================================================================
+// STATUS & STATE MANAGEMENT
+// ============================================================================
 
 function setStatus(next) {
   state.status = next;
@@ -60,24 +62,16 @@ function setStatus(next) {
 
 function setRecordingState(newState) {
   state.recordingState = newState;
-  
+
   // Update status indicator animation
   statusIndicator.className = `status-indicator ${newState.toLowerCase()}`;
-  
+
   let label = "Idle";
   if (newState === RECORDING_STATES.RECORDING) label = "Recording";
   if (newState === RECORDING_STATES.PROCESSING) label = "Processing";
   if (newState === RECORDING_STATES.LISTENING) label = "Listening";
-  
-  statusIndicatorText.textContent = label;
 
-  if (newState === RECORDING_STATES.RECORDING) {
-    if (!state.audio.stream) {
-      enableMicVisualizer().catch((err) => {
-        console.error("Failed to enable mic visualizer:", err);
-      });
-    }
-  }
+  statusIndicatorText.textContent = label;
 
   if (window.OrbVisualizer) {
     window.OrbVisualizer.setState(newState);
@@ -103,7 +97,141 @@ function updateModeUI() {
   }
 }
 
-function setInteractionMode(newMode) {
+// ============================================================================
+// AUDIO CAPTURE & ENCODING (Browser → Server)
+// ============================================================================
+
+/**
+ * Request microphone permission from user.
+ * @returns {Promise<MediaStream>} Audio stream from microphone
+ */
+async function requestMicrophoneAccess() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return stream;
+  } catch (err) {
+    setStatus("error");
+    addMessage("system", `Microphone access denied: ${String(err.message)}`);
+    throw err;
+  }
+}
+
+/**
+ * Capture audio from microphone for specified duration.
+ * @param {number} durationMs - Duration to capture in milliseconds
+ * @returns {Promise<Float32Array>} PCM audio data (16kHz mono)
+ */
+async function captureAudioMs(durationMs) {
+  const stream = await requestMicrophoneAccess();
+  const sampleRate = 16000;
+  const audioContext = new AudioContext({ sampleRate });
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+
+  processor.onaudioprocess = (e) => {
+    const channelData = e.inputBuffer.getChannelData(0);
+    chunks.push(new Float32Array(channelData));
+  };
+
+  source.connect(processor);
+  processor.connect(audioContext.destination);
+
+  // Wait for specified duration
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
+
+  // Clean up
+  source.disconnect();
+  processor.disconnect();
+  audioContext.close();
+
+  // Combine chunks into single array
+  const totalLength = chunks.reduce((len, chunk) => len + chunk.length, 0);
+  const combined = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return combined;
+}
+
+/**
+ * Convert PCM float32 array to WAV format (bytes) with proper WAV header.
+ * @param {Float32Array} pcmData - PCM audio data
+ * @param {number} sampleRate - Sample rate in Hz (default 16000)
+ * @returns {Uint8Array} WAV file bytes
+ */
+function pcmToWavBytes(pcmData, sampleRate = 16000) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+
+  // Convert float32 to int16
+  const int16Data = new Int16Array(pcmData.length);
+  for (let i = 0; i < pcmData.length; i++) {
+    const sample = Math.max(-1, Math.min(1, pcmData[i]));
+    int16Data[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+
+  // Build WAV file
+  const wavLength = 36 + numChannels * sampleRate * 2;
+  const wavBuffer = new ArrayBuffer(44 + int16Data.byteLength);
+  const view = new DataView(wavBuffer);
+
+  // Helper to write string to ArrayBuffer
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  // RIFF header
+  writeString(0, "RIFF");
+  view.setUint32(4, wavLength, true);
+  writeString(8, "WAVE");
+
+  // fmt subchunk
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true); // subchunk1 size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+
+  // data subchunk
+  writeString(36, "data");
+  view.setUint32(40, int16Data.byteLength, true);
+
+  // Copy PCM data
+  const uint8 = new Uint8Array(wavBuffer);
+  uint8.set(new Uint8Array(int16Data.buffer), 44);
+
+  return uint8;
+}
+
+/**
+ * Encode WAV bytes to base64 string.
+ * @param {Uint8Array} wavBytes - WAV file bytes
+ * @returns {string} Base64-encoded WAV data
+ */
+function wavBytesToBase64(wavBytes) {
+  let binary = "";
+  for (let i = 0; i < wavBytes.byteLength; i++) {
+    binary += String.fromCharCode(wavBytes[i]);
+  }
+  return btoa(binary);
+}
+
+// ============================================================================
+// INTERACTION MODES
+// ============================================================================
+
+async function setInteractionMode(newMode) {
   if (state.recordingState !== RECORDING_STATES.IDLE) {
     console.warn("Cannot switch mode while recording");
     return;
@@ -113,7 +241,6 @@ function setInteractionMode(newMode) {
   if (state.interactionMode === INTERACTION_MODES.AUTO_CONTINUOUS) {
     state.autoConversationEnabled = false;
   }
-
   if (state.interactionMode === INTERACTION_MODES.WAKE_WORD_TRIGGERED) {
     state.autoConversationEnabled = false;
   }
@@ -123,7 +250,25 @@ function setInteractionMode(newMode) {
   setRecordingState(RECORDING_STATES.IDLE);
   updateModeUI();
 
-  // For wake mode, immediately start listening
+  // Request mic access for voice modes
+  const voiceModes = [
+    INTERACTION_MODES.DIRECT_VOICE,
+    INTERACTION_MODES.SPACEBAR_HOLD,
+    INTERACTION_MODES.AUTO_CONTINUOUS,
+    INTERACTION_MODES.WAKE_WORD_TRIGGERED,
+  ];
+
+  if (voiceModes.includes(newMode)) {
+    try {
+      await requestMicrophoneAccess();
+    } catch (err) {
+      console.warn("Mic permission not granted; voice modes will not work");
+      setStatus("error");
+      return;
+    }
+  }
+
+  // Start wake word or auto loop
   if (newMode === INTERACTION_MODES.WAKE_WORD_TRIGGERED) {
     state.autoConversationEnabled = true;
     startWakeWordLoop();
@@ -292,6 +437,14 @@ async function requestVoiceTurn(speakReply = true) {
   });
 }
 
+// ============================================================================
+// VOICE INTERACTIONS (Browser Audio Capture)
+// ============================================================================
+
+/**
+ * Execute a voice turn with browser-captured audio.
+ * Captures 6 seconds from microphone, sends to server for processing.
+ */
 async function runVoiceTurn() {
   if (state.recordingState !== RECORDING_STATES.IDLE) {
     console.warn("Already recording or processing");
@@ -301,7 +454,29 @@ async function runVoiceTurn() {
   try {
     setRecordingState(RECORDING_STATES.RECORDING);
     setStatus("busy");
-    const data = await requestVoiceTurn(true);
+
+    // Request mic permission first
+    await requestMicrophoneAccess();
+
+    // Capture 6 seconds of audio from browser microphone
+    const pcmData = await captureAudioMs(6000);
+
+    // Encode PCM to WAV
+    const wavBytes = pcmToWavBytes(pcmData);
+
+    // Encode WAV to base64
+    const audioBase64 = wavBytesToBase64(wavBytes);
+
+    // Send to new browser-audio endpoint
+    const data = await api("/api/v1/voice/turn-with-audio", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        audio_base64: audioBase64,
+        speak_reply: true,
+      }),
+    });
+
     applyVoiceTurnResult(data, { manual: true });
   } catch (err) {
     setStatus("error");
@@ -317,7 +492,19 @@ async function runVoiceTurnAuto() {
   try {
     setStatus("busy");
     setRecordingState(RECORDING_STATES.PROCESSING);
-    const data = await requestVoiceTurn(true);
+    const pcmData = await captureAudioMs(6000);
+    const wavBytes = pcmToWavBytes(pcmData);
+    const audioBase64 = wavBytesToBase64(wavBytes);
+
+    const data = await api("/api/v1/voice/turn-with-audio", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        audio_base64: audioBase64,
+        speak_reply: true,
+      }),
+    });
+
     applyVoiceTurnResult(data, { manual: false });
   } catch (err) {
     setStatus("error");
@@ -373,60 +560,10 @@ function startAutoConversationLoop() {
   void loop();
 }
 
-function animateFromAudio() {
-  const analyser = state.audio.analyser;
-  if (!analyser) return;
+// ============================================================================
+// EVENT LISTENERS
+// ============================================================================
 
-  const data = new Uint8Array(analyser.fftSize);
-  analyser.getByteTimeDomainData(data);
-
-  let sum = 0;
-  for (let i = 0; i < data.length; i += 1) {
-    const normalized = (data[i] - 128) / 128;
-    sum += normalized * normalized;
-  }
-
-  const rms = Math.sqrt(sum / data.length);
-  const clamped = Math.min(1, rms * 5);
-  
-  if (meterFill) meterFill.style.width = `${(clamped * 100).toFixed(0)}%`;
-
-  if (window.OrbVisualizer) {
-    const freqData = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(freqData);
-    window.OrbVisualizer.setAudioData(freqData);
-  }
-
-  state.audio.rafId = requestAnimationFrame(animateFromAudio);
-}
-
-async function enableMicVisualizer() {
-  if (state.audio.stream) return;
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const context = new AudioContext();
-    const source = context.createMediaStreamSource(stream);
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 1024;
-    source.connect(analyser);
-
-    state.audio.stream = stream;
-    state.audio.context = context;
-    state.audio.analyser = analyser;
-
-    micButton.style.color = "var(--color-success)";
-    addSystemOnce("Microphone visualizer enabled.");
-
-    animateFromAudio();
-    if (state.status === "idle") setStatus("active");
-  } catch (err) {
-    setStatus("error");
-    addMessage("system", `Mic access failed: ${String(err.message || err)}`);
-  }
-}
-
-// Event Listeners
 sendButton.addEventListener("click", sendTextMessage);
 textInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -435,14 +572,12 @@ textInput.addEventListener("keydown", (event) => {
   }
 });
 
-micButton.addEventListener("click", enableMicVisualizer);
-
-// Segmented Control Listeners
+// Segmented Control Listeners (mode selection)
 segments.forEach((btn) => {
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     const mode = btn.dataset.mode;
     if (mode && INTERACTION_MODES[mode]) {
-      setInteractionMode(INTERACTION_MODES[mode]);
+      await setInteractionMode(INTERACTION_MODES[mode]);
     }
   });
 });

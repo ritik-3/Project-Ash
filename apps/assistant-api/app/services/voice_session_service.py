@@ -50,6 +50,11 @@ class VoiceSessionService:
             return False
 
         recent_turns = self.conversation_service.memory_service.recent_turns(session_id)
+
+        # Skip echo check if no history (new session)
+        if not recent_turns:
+            return False
+
         recent_assistant_messages = [turn.assistant for turn in recent_turns[-3:]]
 
         for assistant_message in recent_assistant_messages:
@@ -150,6 +155,92 @@ class VoiceSessionService:
             )
         except Exception as exc:  # pragma: no cover - runtime safety fallback
             logger.exception("Voice turn failed")
+            return VoiceTurnResponse(
+                status="error",
+                session_id=session_id,
+                detail=str(exc),
+            )
+
+    async def run_turn_with_audio(
+        self,
+        session_id: str = "default",
+        audio_bytes: np.ndarray | None = None,
+        speak_reply: bool = True,
+    ) -> VoiceTurnResponse:
+        """Run voice turn with pre-recorded browser audio (skip server recording).
+
+        This flow is used when the browser captures audio client-side and sends it
+        to the server. Skips wake word detection since user explicitly triggered it.
+
+        Args:
+            session_id: Conversation session ID.
+            audio_bytes: Audio samples as float32 numpy array.
+            speak_reply: Whether to speak the reply using TTS.
+
+        Returns:
+            VoiceTurnResponse with transcript and reply.
+        """
+        try:
+            if audio_bytes is None or audio_bytes.size == 0:
+                return VoiceTurnResponse(
+                    status="error",
+                    session_id=session_id,
+                    detail="No audio data provided.",
+                )
+
+            # Trim silence from audio
+            audio = await asyncio.to_thread(self.vad_service.trim_speech, audio_bytes)
+
+            if audio.size == 0:
+                return VoiceTurnResponse(
+                    status="error",
+                    session_id=session_id,
+                    detail="Audio contained only silence.",
+                )
+
+            # Transcribe audio to text
+            transcript = await asyncio.to_thread(self.stt_service.transcribe, audio)
+
+            if not transcript.strip():
+                return VoiceTurnResponse(
+                    status="error",
+                    session_id=session_id,
+                    detail="No speech recognized in audio.",
+                )
+
+            # Optional: Check for self-echo (when browser plays server audio back)
+            if self._looks_like_self_echo(session_id, transcript):
+                return VoiceTurnResponse(
+                    status="timeout",
+                    session_id=session_id,
+                    detail="Detected self-audio echo and ignored this turn.",
+                )
+
+            # Get LLM response
+            reply = await self.conversation_service.respond(
+                ChatRequest(session_id=session_id, message=transcript)
+            )
+
+            # Speak reply using TTS (optional)
+            tts_warning: str | None = None
+            if speak_reply:
+                try:
+                    await asyncio.to_thread(self.tts_service.speak, reply.reply)
+                except Exception as tts_exc:  # pragma: no cover - runtime audio fallback
+                    logger.warning("TTS playback failed, continuing without spoken output: %s", tts_exc)
+                    tts_warning = f"TTS playback failed: {tts_exc}"
+
+            return VoiceTurnResponse(
+                status=reply.status,  # type: ignore[arg-type]
+                session_id=session_id,
+                transcript=transcript,
+                reply=reply.reply,
+                history_size=reply.history_size,
+                model=reply.model,
+                detail=tts_warning,
+            )
+        except Exception as exc:  # pragma: no cover - runtime safety fallback
+            logger.exception("Voice turn with audio failed")
             return VoiceTurnResponse(
                 status="error",
                 session_id=session_id,

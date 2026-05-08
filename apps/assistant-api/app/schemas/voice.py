@@ -17,6 +17,14 @@ class VoiceTurnRequest(BaseModel):
     speak_reply: bool = True
 
 
+class VoiceTurnWithAudioRequest(BaseModel):
+    """Voice turn with browser-captured base64 audio."""
+
+    session_id: str = "default"
+    audio_base64: str = Field(min_length=1, description="Base64-encoded WAV audio data")
+    speak_reply: bool = True
+
+
 class VoiceTurnResponse(BaseModel):
     status: Literal["ok", "timeout", "error", "fallback"]
     session_id: str

@@ -1,7 +1,9 @@
 from functools import lru_cache
 
 from app.core.config import Settings, get_settings
+from os import getenv
 from app.providers.llm.ollama_provider import OllamaProvider
+from app.providers.llm.dummy_provider import DummyProvider
 from app.providers.stt.faster_whisper_provider import FasterWhisperTranscriber
 from app.providers.tts.piper_provider import PiperTTSProvider
 from app.providers.vad.silero_provider import SileroVadService
@@ -26,6 +28,9 @@ def get_memory_service() -> SessionMemoryService:
 @lru_cache(maxsize=1)
 def get_llm_provider() -> OllamaProvider:
     settings = get_cached_settings()
+    use_dummy = getenv("USE_DUMMY_LLM", "0").strip() in {"1", "true", "yes", "on"}
+    if use_dummy:
+        return DummyProvider()
     return OllamaProvider(base_url=settings.ollama_base_url, model=settings.ollama_model)
 
 

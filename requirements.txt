@@ -22,4 +22,4 @@ pywinauto
 pygetwindow
 pyautogui
 pytest
-tflite-runtime
+tflite-runtime; platform_system != "Windows"
