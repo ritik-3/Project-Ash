@@ -8,158 +8,110 @@
   </head>
   <body>
     <div class="app-container">
-      <!-- Header -->
+      
+      <!-- Top Header -->
       <header class="app-header">
-        <div class="header-content">
-          <div class="brand">
-            <span class="brand-text">ASH</span>
-            <span class="brand-glow"></span>
-          </div>
-          <div class="header-status">
-            <span id="statusDot" class="status-dot idle"></span>
-            <span id="statusText" class="status-text">Ready</span>
-          </div>
+        <div class="brand">
+          <span class="brand-text">ASH</span>
+          <span class="brand-glow"></span>
+        </div>
+        <div class="header-status">
+          <span id="statusDot" class="status-dot idle"></span>
+          <span id="statusText" class="status-text">Ready</span>
         </div>
       </header>
 
-      <!-- Main Content -->
       <main class="app-main">
-        <!-- Orb Section -->
-        <section class="orb-container">
-          <div id="orb" class="orb">
-            <div class="orb-core"></div>
-            <div class="orb-glow"></div>
-            <div class="orb-inner-text">
-              <span id="orbModeName" class="orb-mode-name">Direct Voice</span>
-            </div>
-          </div>
-
-          <!-- Status Indicator -->
-          <div class="status-indicator-container">
-            <div id="statusIndicator" class="status-indicator idle">
-              <div class="status-indicator-pulse"></div>
-            </div>
-            <span id="statusIndicatorText" class="status-indicator-text">Ready</span>
-          </div>
-
-          <!-- Mic Energy Meter -->
-          <div class="mic-meter-container">
-            <span class="meter-label">Mic Energy</span>
-            <div class="meter">
-              <div id="meterFill" class="meter-fill"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Mode Selector Cards -->
-        <section class="mode-selector-cards">
-          <!-- Direct Voice Card -->
-          <button id="modeDirectVoice" class="mode-card active" data-mode="DIRECT_VOICE" aria-label="Direct Voice mode">
-            <div class="mode-card-icon">⚡</div>
-            <div class="mode-card-name">Direct Voice</div>
-            <div class="mode-card-desc">Press to speak</div>
-          </button>
-
-          <!-- Conversation Card -->
-          <button id="modeConversation" class="mode-card" data-mode="AUTO_CONTINUOUS" aria-label="Conversation mode">
-            <div class="mode-card-icon">🌊</div>
-            <div class="mode-card-name">Conversation</div>
-            <div class="mode-card-desc">Continuous mode</div>
-          </button>
-
-          <!-- Wake Mode Card -->
-          <button id="modeWakeWord" class="mode-card" data-mode="WAKE_WORD_TRIGGERED" aria-label="Wake word mode">
-            <div class="mode-card-icon">🎙️</div>
-            <div class="mode-card-name">Wake Mode</div>
-            <div class="mode-card-desc">Voice activated</div>
-          </button>
-
-          <!-- Push-to-Talk Card -->
-          <button id="modePushToTalk" class="mode-card" data-mode="SPACEBAR_HOLD" aria-label="Push-to-talk mode">
-            <div class="mode-card-icon">⌨️</div>
-            <div class="mode-card-name">Push-to-Talk</div>
-            <div class="mode-card-desc">Hold spacebar</div>
-          </button>
-        </section>
-
-        <!-- Control Panel (Mode-Specific) -->
-        <section class="control-panel-container">
-          <!-- Direct Voice Controls -->
-          <div id="directVoiceControls" class="control-panel active">
-            <button id="directVoiceButton" class="btn btn-large btn-primary">
-              <span class="btn-icon">🎤</span>
-              <span>Press to Speak</span>
-            </button>
-            <button id="micButton" class="btn btn-secondary">
-              <span class="btn-icon">📊</span>
-              <span>Enable Visualizer</span>
-            </button>
-          </div>
-
-          <!-- Conversation Controls -->
-          <div id="conversationControls" class="control-panel">
-            <button id="conversationToggle" class="btn btn-large btn-primary">
-              <span class="btn-icon">▶️</span>
-              <span>Start Listening</span>
-            </button>
-            <button id="micButton2" class="btn btn-secondary">
-              <span class="btn-icon">📊</span>
-              <span>Enable Visualizer</span>
-            </button>
-          </div>
-
-          <!-- Wake Mode Controls -->
-          <div id="wakeWordControls" class="control-panel">
-            <div id="wakeWordStatus" class="wake-word-status">
-              <div class="listening-indicator"></div>
-              <span>Waiting for wake word...</span>
-            </div>
-            <button id="micButton3" class="btn btn-secondary">
-              <span class="btn-icon">📊</span>
-              <span>Enable Visualizer</span>
-            </button>
-          </div>
-
-          <!-- Push-to-Talk Controls -->
-          <div id="spacebar_holdControls" class="control-panel">
-            <div id="spacebarStatus" class="spacebar-status">
-              <div class="spacebar-indicator">⌨️</div>
-              <span>Hold SPACEBAR to record</span>
-            </div>
-            <button id="micButton4" class="btn btn-secondary">
-              <span class="btn-icon">📊</span>
-              <span>Enable Visualizer</span>
-            </button>
-          </div>
-        </section>
-
-        <!-- Chat Panel -->
-        <section class="chat-container">
-          <div id="chatLog" class="chat-log" aria-live="polite" aria-label="Chat messages"></div>
+        <!-- LEFT COLUMN: The Persona & Controls -->
+        <section class="left-column">
           
-          <div class="chat-input-container">
+          <!-- The Orb -->
+          <div class="orb-container">
+            <canvas id="orbCanvas" class="orb"></canvas>
+            
+            <!-- Mic Energy Meter under Orb -->
+            <div class="mic-meter-container">
+              <div class="meter">
+                <div id="meterFill" class="meter-fill"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Segmented Control for Modes -->
+          <div class="segmented-control-container">
+            <div class="segmented-control">
+              <button class="segment active" data-mode="DIRECT_VOICE" aria-label="Direct Voice">
+                <span class="segment-icon">⚡</span>
+                <span class="segment-label">Direct</span>
+              </button>
+              <button class="segment" data-mode="AUTO_CONTINUOUS" aria-label="Conversation">
+                <span class="segment-icon">💬</span>
+                <span class="segment-label">Auto</span>
+              </button>
+              <button class="segment" data-mode="WAKE_WORD_TRIGGERED" aria-label="Wake Mode">
+                <span class="segment-icon">🎙️</span>
+                <span class="segment-label">Wake</span>
+              </button>
+              <button class="segment" data-mode="SPACEBAR_HOLD" aria-label="Push-to-Talk">
+                <span class="segment-icon">⌨️</span>
+                <span class="segment-label">PTT</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Status Indicator Info & Toggles -->
+          <div class="bottom-controls-row">
+            <div id="modeStatusInfo" class="mode-status-info">
+              <div id="statusIndicator" class="status-indicator idle">
+                <div class="status-indicator-pulse"></div>
+              </div>
+              <span id="statusIndicatorText" class="status-indicator-text">Idle</span>
+            </div>
+
+            <button id="micButton" class="btn-icon-toggle" aria-label="Toggle Mic Visualizer" title="Enable Mic Visualizer">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="20" x2="12" y2="10"></line>
+                <line x1="18" y1="20" x2="18" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="16"></line>
+              </svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- RIGHT COLUMN: The Context / Chat -->
+        <section class="right-column">
+          <!-- Chat Log Area -->
+          <div class="chat-container">
+            <div id="chatLog" class="chat-log" aria-live="polite" aria-label="Chat messages"></div>
+          </div>
+          
+          <!-- Docked Input Area -->
+          <div class="input-dock">
+            <button id="dockMicBtn" class="btn-dock-mic" aria-label="Trigger Voice" title="Trigger Voice">
+              <span class="mic-icon">🎤</span>
+            </button>
             <input
               id="textInput"
               type="text"
               class="chat-input"
-              placeholder="Type to Ash..."
+              placeholder="Type to Ash or click mic..."
               maxlength="500"
               aria-label="Message input"
             />
-            <button id="sendButton" class="btn btn-chat-send" aria-label="Send message">
+            <button id="sendButton" class="btn-dock-send" aria-label="Send message">
               <span class="send-icon">→</span>
             </button>
           </div>
         </section>
       </main>
+
     </div>
 
-    <!-- Hidden legacy elements for backward compatibility -->
+    <!-- Hidden legacy element for backward compatibility with app.js if needed, or removed if app.js is updated -->
     <label class="wake-toggle hidden">
-      <input id="wakeToggle" type="checkbox" />
-      Wait for wake word before listening
+      <input id="wakeToggle" type="checkbox" checked />
     </label>
-
+    <script src="/web/orb.js" defer></script>
     <script src="/web/app.js" defer></script>
   </body>
 </html>

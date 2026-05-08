@@ -37,37 +37,20 @@ const AUTO_LOOP_LOCK_KEY = "ash:auto-loop-owner";
 const AUTO_LOOP_HEARTBEAT_MS = 1500;
 const AUTO_LOOP_STALE_MS = 6000;
 
+// DOM Elements
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const orb = document.getElementById("orb");
-const orbModeName = document.getElementById("orbModeName");
 const statusIndicator = document.getElementById("statusIndicator");
 const statusIndicatorText = document.getElementById("statusIndicatorText");
 const meterFill = document.getElementById("meterFill");
 const chatLog = document.getElementById("chatLog");
 const textInput = document.getElementById("textInput");
 const sendButton = document.getElementById("sendButton");
-const micButton = document.getElementById("micButton");
+const dockMicBtn = document.getElementById("dockMicBtn");
+const micButton = document.getElementById("micButton"); // The visualizer toggle
 const wakeToggle = document.getElementById("wakeToggle");
-
-// Mode selector elements (now .mode-card buttons)
-const modeDirectVoiceBtn = document.getElementById("modeDirectVoice");
-const modeConversationBtn = document.getElementById("modeConversation");
-const modeWakeWordBtn = document.getElementById("modeWakeWord");
-const modePushToTalkBtn = document.getElementById("modePushToTalk");
-const modeCards = document.querySelectorAll(".mode-card");
-
-// Mode-specific control panels (now .control-panel)
-const directVoiceControls = document.getElementById("directVoiceControls");
-const directVoiceButton = document.getElementById("directVoiceButton");
-const conversationControls = document.getElementById("conversationControls");
-const conversationToggle = document.getElementById("conversationToggle");
-const wakeWordControls = document.getElementById("wakeWordControls");
-const spacebar_holdControls = document.getElementById("spacebar_holdControls");
-
-// Status elements
-const wakeWordStatus = document.getElementById("wakeWordStatus");
-const spacebarStatus = document.getElementById("spacebarStatus");
+const segments = document.querySelectorAll(".segment");
 
 function setStatus(next) {
   state.status = next;
@@ -80,7 +63,13 @@ function setRecordingState(newState) {
   
   // Update status indicator animation
   statusIndicator.className = `status-indicator ${newState.toLowerCase()}`;
-  statusIndicatorText.textContent = newState;
+  
+  let label = "Idle";
+  if (newState === RECORDING_STATES.RECORDING) label = "Recording";
+  if (newState === RECORDING_STATES.PROCESSING) label = "Processing";
+  if (newState === RECORDING_STATES.LISTENING) label = "Listening";
+  
+  statusIndicatorText.textContent = label;
 
   if (newState === RECORDING_STATES.RECORDING) {
     if (!state.audio.stream) {
@@ -89,41 +78,28 @@ function setRecordingState(newState) {
       });
     }
   }
+
+  if (window.OrbVisualizer) {
+    window.OrbVisualizer.setState(newState);
+  }
 }
 
 function updateModeUI() {
-  const modeLabel = {
-    DIRECT_VOICE: "Direct Voice",
-    AUTO_CONTINUOUS: "Conversation",
-    WAKE_WORD_TRIGGERED: "Wake Mode",
-    SPACEBAR_HOLD: "Push-to-Talk",
-  };
-
-  // Update orb text
-  orbModeName.textContent = modeLabel[state.interactionMode];
-
-  // Update mode card active states
-  modeCards.forEach((card) => {
-    if (card.dataset.mode === state.interactionMode) {
-      card.classList.add("active");
+  segments.forEach((btn) => {
+    if (btn.dataset.mode === state.interactionMode) {
+      btn.classList.add("active");
     } else {
-      card.classList.remove("active");
+      btn.classList.remove("active");
     }
   });
 
-  // Hide all control panels
-  const allPanels = document.querySelectorAll(".control-panel");
-  allPanels.forEach((panel) => panel.classList.remove("active"));
-
-  // Show the appropriate control panel
-  if (state.interactionMode === INTERACTION_MODES.DIRECT_VOICE) {
-    directVoiceControls.classList.add("active");
-  } else if (state.interactionMode === INTERACTION_MODES.AUTO_CONTINUOUS) {
-    conversationControls.classList.add("active");
-  } else if (state.interactionMode === INTERACTION_MODES.WAKE_WORD_TRIGGERED) {
-    wakeWordControls.classList.add("active");
-  } else if (state.interactionMode === INTERACTION_MODES.SPACEBAR_HOLD) {
-    spacebar_holdControls.classList.add("active");
+  // Update Dock Mic Icon style based on mode
+  if (state.interactionMode === INTERACTION_MODES.AUTO_CONTINUOUS) {
+    dockMicBtn.innerHTML = `<span class="mic-icon">${state.autoConversationEnabled ? "⏸️" : "▶️"}</span>`;
+    dockMicBtn.title = state.autoConversationEnabled ? "Pause Conversation" : "Start Conversation";
+  } else {
+    dockMicBtn.innerHTML = `<span class="mic-icon">🎤</span>`;
+    dockMicBtn.title = "Trigger Voice";
   }
 }
 
@@ -161,13 +137,9 @@ function nowMs() {
 function readAutoLoopLock() {
   try {
     const raw = localStorage.getItem(AUTO_LOOP_LOCK_KEY);
-    if (!raw) {
-      return null;
-    }
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.id !== "string" || typeof parsed.ts !== "number") {
-      return null;
-    }
+    if (!parsed || typeof parsed.id !== "string" || typeof parsed.ts !== "number") return null;
     return parsed;
   } catch (_err) {
     return null;
@@ -224,16 +196,14 @@ async function api(path, options = {}) {
 
 const seenSystem = new Set();
 function addSystemOnce(message) {
-  if (seenSystem.has(message)) {
-    return;
-  }
+  if (seenSystem.has(message)) return;
   seenSystem.add(message);
   addMessage("system", message);
 }
 
 async function pollHealth() {
   try {
-    const data = await api("/api/v1/health", { method: "GET", headers: {} });
+    const data = await api("/api/v1/health", { method: "GET" });
     state.wakeWordModel = data.wake_word_model || "";
     if (state.status === "error") {
       setStatus("idle");
@@ -242,7 +212,7 @@ async function pollHealth() {
       addSystemOnce("TTS is using Windows fallback voice (Piper model not configured).");
     }
     if (state.wakeWordModel) {
-      addSystemOnce(`Wake-word model is '${state.wakeWordModel}'. Enable wake-word only if you plan to say that phrase.`);
+      addSystemOnce(`Wake-word model is '${state.wakeWordModel}'.`);
     }
   } catch (_err) {
     setStatus("error");
@@ -251,9 +221,7 @@ async function pollHealth() {
 
 async function sendTextMessage() {
   const message = textInput.value.trim();
-  if (!message) {
-    return;
-  }
+  if (!message) return;
 
   textInput.value = "";
   addMessage("user", message);
@@ -276,12 +244,19 @@ async function sendTextMessage() {
 }
 
 function applyVoiceTurnResult(data, { manual = false } = {}) {
-  if (data.transcript) {
-    addMessage("user", data.transcript);
-  }
-
+  if (data.transcript) addMessage("user", data.transcript);
   if (data.reply) {
     addMessage("assistant", data.reply);
+    if (window.OrbVisualizer) {
+      window.OrbVisualizer.setState('SPEAKING');
+      // Simulate speaking duration based on text length
+      const duration = Math.max(1500, Math.min(6000, data.reply.length * 60));
+      setTimeout(() => {
+        if (state.recordingState === RECORDING_STATES.IDLE && window.OrbVisualizer) {
+          window.OrbVisualizer.setState('IDLE');
+        }
+      }, duration);
+    }
   }
 
   if (data.status === "ok") {
@@ -294,11 +269,8 @@ function applyVoiceTurnResult(data, { manual = false } = {}) {
   const isSilentNoSpeech = detailText.includes("no speech");
   if (data.status === "timeout" || isSilentNoSpeech) {
     state.autoLoopBackoffMs = 2600;
-    if (manual && data.status === "timeout" && wakeToggle.checked) {
-      addMessage(
-        "system",
-        `Wake word timeout. Say '${state.wakeWordModel || "configured wake word"}', or uncheck wake-word mode for direct voice turn.`
-      );
+    if (manual && data.status === "timeout" && wakeToggle && wakeToggle.checked) {
+      addMessage("system", `Wake word timeout. Say '${state.wakeWordModel || "configured wake word"}'`);
     }
     setStatus("idle");
     return;
@@ -314,7 +286,7 @@ async function requestVoiceTurn(speakReply = true) {
     method: "POST",
     body: JSON.stringify({
       session_id: state.sessionId,
-      wait_for_wake_word: Boolean(wakeToggle.checked),
+      wait_for_wake_word: wakeToggle ? Boolean(wakeToggle.checked) : false,
       speak_reply: Boolean(speakReply),
     }),
   });
@@ -340,10 +312,7 @@ async function runVoiceTurn() {
 }
 
 async function runVoiceTurnAuto() {
-  if (state.autoLoopInFlight) {
-    return;
-  }
-
+  if (state.autoLoopInFlight) return;
   state.autoLoopInFlight = true;
   try {
     setStatus("busy");
@@ -360,81 +329,53 @@ async function runVoiceTurnAuto() {
 }
 
 async function startWakeWordLoop() {
-  if (state.interactionMode !== INTERACTION_MODES.WAKE_WORD_TRIGGERED) {
-    return;
-  }
-
+  if (state.interactionMode !== INTERACTION_MODES.WAKE_WORD_TRIGGERED) return;
   if (!tryAcquireAutoLoopLock()) {
-    addSystemOnce("Wake word listening is already running in another tab. This tab is passive.");
+    addSystemOnce("Wake word listening is running in another tab. Passive mode.");
     return;
   }
 
-  addSystemOnce(`Wake-word model is '${state.wakeWordModel || "hey_jarvis"}'. Say the wake phrase to interact.`);
+  addSystemOnce(`Wake-word model is '${state.wakeWordModel || "hey_jarvis"}'. Say the wake phrase.`);
 
   const loop = async () => {
-    if (state.interactionMode !== INTERACTION_MODES.WAKE_WORD_TRIGGERED || !state.autoConversationEnabled) {
-      return;
-    }
-
-    if (!state.autoLoopLockHeld && !tryAcquireAutoLoopLock()) {
-      return;
-    }
-
+    if (state.interactionMode !== INTERACTION_MODES.WAKE_WORD_TRIGGERED || !state.autoConversationEnabled) return;
+    if (!state.autoLoopLockHeld && !tryAcquireAutoLoopLock()) return;
+    
     await runVoiceTurnAuto();
     const nextDelayMs = Math.max(state.status === "error" ? 3000 : 1200, state.autoLoopBackoffMs || 0);
     setTimeout(loop, nextDelayMs);
   };
-
   void loop();
 }
 
 function startAutoConversationLoop() {
-  if (!state.autoConversationEnabled) {
-    return;
-  }
-
-  if (state.interactionMode !== INTERACTION_MODES.AUTO_CONTINUOUS) {
-    return;
-  }
-
+  if (!state.autoConversationEnabled || state.interactionMode !== INTERACTION_MODES.AUTO_CONTINUOUS) return;
   if (!tryAcquireAutoLoopLock()) {
-    addSystemOnce("Auto conversation is already running in another tab. This tab is passive.");
+    addSystemOnce("Auto conversation is running in another tab. Passive mode.");
     return;
   }
 
-  if (state.autoLoopHeartbeatId) {
-    clearInterval(state.autoLoopHeartbeatId);
-  }
+  if (state.autoLoopHeartbeatId) clearInterval(state.autoLoopHeartbeatId);
   state.autoLoopHeartbeatId = setInterval(() => {
-    if (state.autoLoopLockHeld) {
-      writeAutoLoopLock();
-    }
+    if (state.autoLoopLockHeld) writeAutoLoopLock();
   }, AUTO_LOOP_HEARTBEAT_MS);
 
   addSystemOnce("Auto conversation is running in the background.");
 
   const loop = async () => {
-    if (!state.autoConversationEnabled || state.interactionMode !== INTERACTION_MODES.AUTO_CONTINUOUS) {
-      return;
-    }
-
-    if (!state.autoLoopLockHeld && !tryAcquireAutoLoopLock()) {
-      return;
-    }
-
+    if (!state.autoConversationEnabled || state.interactionMode !== INTERACTION_MODES.AUTO_CONTINUOUS) return;
+    if (!state.autoLoopLockHeld && !tryAcquireAutoLoopLock()) return;
+    
     await runVoiceTurnAuto();
     const nextDelayMs = Math.max(state.status === "error" ? 3000 : 1200, state.autoLoopBackoffMs || 0);
     setTimeout(loop, nextDelayMs);
   };
-
   void loop();
 }
 
 function animateFromAudio() {
   const analyser = state.audio.analyser;
-  if (!analyser) {
-    return;
-  }
+  if (!analyser) return;
 
   const data = new Uint8Array(analyser.fftSize);
   analyser.getByteTimeDomainData(data);
@@ -447,18 +388,20 @@ function animateFromAudio() {
 
   const rms = Math.sqrt(sum / data.length);
   const clamped = Math.min(1, rms * 5);
+  
+  if (meterFill) meterFill.style.width = `${(clamped * 100).toFixed(0)}%`;
 
-  const scale = 1 + clamped * 0.35;
-  orb.style.transform = `scale(${scale.toFixed(3)})`;
-  meterFill.style.width = `${(clamped * 100).toFixed(0)}%`;
+  if (window.OrbVisualizer) {
+    const freqData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(freqData);
+    window.OrbVisualizer.setAudioData(freqData);
+  }
 
   state.audio.rafId = requestAnimationFrame(animateFromAudio);
 }
 
 async function enableMicVisualizer() {
-  if (state.audio.stream) {
-    return;
-  }
+  if (state.audio.stream) return;
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -472,20 +415,18 @@ async function enableMicVisualizer() {
     state.audio.context = context;
     state.audio.analyser = analyser;
 
-    micButton.disabled = true;
-    micButton.textContent = "Mic Visualizer Active";
+    micButton.style.color = "var(--color-success)";
     addSystemOnce("Microphone visualizer enabled.");
 
     animateFromAudio();
-    if (state.status === "idle") {
-      setStatus("active");
-    }
+    if (state.status === "idle") setStatus("active");
   } catch (err) {
     setStatus("error");
     addMessage("system", `Mic access failed: ${String(err.message || err)}`);
   }
 }
 
+// Event Listeners
 sendButton.addEventListener("click", sendTextMessage);
 textInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -496,83 +437,59 @@ textInput.addEventListener("keydown", (event) => {
 
 micButton.addEventListener("click", enableMicVisualizer);
 
-// Additional mic visualizer buttons for each mode
-const micButton2 = document.getElementById("micButton2");
-const micButton3 = document.getElementById("micButton3");
-const micButton4 = document.getElementById("micButton4");
-
-if (micButton2) micButton2.addEventListener("click", enableMicVisualizer);
-if (micButton3) micButton3.addEventListener("click", enableMicVisualizer);
-if (micButton4) micButton4.addEventListener("click", enableMicVisualizer);
-
-// Mode button listeners
-modeDirectVoiceBtn.addEventListener("click", () => {
-  setInteractionMode(INTERACTION_MODES.DIRECT_VOICE);
+// Segmented Control Listeners
+segments.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const mode = btn.dataset.mode;
+    if (mode && INTERACTION_MODES[mode]) {
+      setInteractionMode(INTERACTION_MODES[mode]);
+    }
+  });
 });
 
-modeConversationBtn.addEventListener("click", () => {
-  setInteractionMode(INTERACTION_MODES.AUTO_CONTINUOUS);
-});
-
-modeWakeWordBtn.addEventListener("click", () => {
-  setInteractionMode(INTERACTION_MODES.WAKE_WORD_TRIGGERED);
-});
-
-modePushToTalkBtn.addEventListener("click", () => {
-  setInteractionMode(INTERACTION_MODES.SPACEBAR_HOLD);
-});
-
-// Mode-specific control listeners
-directVoiceButton.addEventListener("click", async () => {
-  if (state.interactionMode !== INTERACTION_MODES.DIRECT_VOICE) return;
-  await runVoiceTurn();
-});
-
-conversationToggle.addEventListener("click", async () => {
-  if (state.interactionMode !== INTERACTION_MODES.AUTO_CONTINUOUS) return;
-
-  if (!state.autoConversationEnabled) {
-    state.autoConversationEnabled = true;
-    conversationToggle.textContent = "Stop Listening";
-    startAutoConversationLoop();
-  } else {
-    state.autoConversationEnabled = false;
-    conversationToggle.textContent = "Start Listening";
+// Dock Mic Button Listener
+dockMicBtn.addEventListener("click", async () => {
+  if (state.interactionMode === INTERACTION_MODES.DIRECT_VOICE || state.interactionMode === INTERACTION_MODES.SPACEBAR_HOLD) {
+    await runVoiceTurn();
+  } else if (state.interactionMode === INTERACTION_MODES.AUTO_CONTINUOUS) {
+    if (!state.autoConversationEnabled) {
+      state.autoConversationEnabled = true;
+      startAutoConversationLoop();
+      updateModeUI();
+    } else {
+      state.autoConversationEnabled = false;
+      updateModeUI();
+    }
   }
 });
 
-// Spacebar listeners for Push-to-Talk mode
+// Spacebar Push-to-Talk
 document.addEventListener("keydown", async (e) => {
   if (state.interactionMode !== INTERACTION_MODES.SPACEBAR_HOLD) return;
-  if (e.code !== "Space") return;
-  if (state.isSpacebarPressed) return; // Guard against repeat keydown
+  if (e.code !== "Space" || e.target === textInput) return; // ignore if typing
+  if (state.isSpacebarPressed) return;
 
   e.preventDefault();
   state.isSpacebarPressed = true;
   setRecordingState(RECORDING_STATES.RECORDING);
-  spacebarStatus.textContent = "Recording...";
 });
 
 document.addEventListener("keyup", async (e) => {
   if (state.interactionMode !== INTERACTION_MODES.SPACEBAR_HOLD) return;
-  if (e.code !== "Space") return;
+  if (e.code !== "Space" || e.target === textInput) return;
   if (!state.isSpacebarPressed) return;
 
   e.preventDefault();
   state.isSpacebarPressed = false;
-  spacebarStatus.textContent = "Hold SPACEBAR to record";
-
-  // Trigger voice turn
   await runVoiceTurn();
 });
 
 window.addEventListener("beforeunload", () => {
-  if (state.autoLoopHeartbeatId) {
-    clearInterval(state.autoLoopHeartbeatId);
-  }
+  if (state.autoLoopHeartbeatId) clearInterval(state.autoLoopHeartbeatId);
   releaseAutoLoopLock();
 });
 
+// Init
 setStatus("idle");
 addSystemOnce("Ash control surface ready.");
 updateModeUI();
