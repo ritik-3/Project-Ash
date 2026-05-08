@@ -72,6 +72,8 @@ class Settings:
     stt_max_no_speech_prob: float
     tts_voice_model_path: Path | None
     tts_voice_config_path: Path | None
+    tts_voice_preset: str | None
+    tts_voice_cache_dir: Path
     tts_use_cuda: bool
     session_memory_limit: int
     conversation_temperature: float
@@ -79,6 +81,8 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        service_root = Path(__file__).resolve().parents[2]
+
         return cls(
             app_name=getenv("APP_NAME", "Ash Assistant"),
             app_version=getenv("APP_VERSION", "0.1.0"),
@@ -105,6 +109,8 @@ class Settings:
             stt_max_no_speech_prob=_as_float(getenv("STT_MAX_NO_SPEECH_PROB"), 0.55),
             tts_voice_model_path=_path_or_none(getenv("PIPER_VOICE_MODEL_PATH")),
             tts_voice_config_path=_path_or_none(getenv("PIPER_VOICE_CONFIG_PATH")),
+            tts_voice_preset=getenv("PIPER_VOICE_PRESET") or "en_US-lessac-medium",
+            tts_voice_cache_dir=Path(getenv("PIPER_VOICE_CACHE_DIR", str(service_root / "models" / "piper"))),
             tts_use_cuda=_as_bool(getenv("PIPER_USE_CUDA"), False),
             session_memory_limit=_as_int(getenv("SESSION_MEMORY_LIMIT"), 8),
             conversation_temperature=_as_float(getenv("CONVERSATION_TEMPERATURE"), 0.7),

@@ -117,7 +117,7 @@ async function requestMicrophoneAccess() {
 }
 
 /**
- * Capture audio from microphone for specified duration.
+ * Capture audio from microphone for specified duration with real-time visualization.
  * @param {number} durationMs - Duration to capture in milliseconds
  * @returns {Promise<Float32Array>} PCM audio data (16kHz mono)
  */
@@ -127,6 +127,9 @@ async function captureAudioMs(durationMs) {
   const audioContext = new AudioContext({ sampleRate });
   const source = audioContext.createMediaStreamSource(stream);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 1024;
+  
   const chunks = [];
 
   processor.onaudioprocess = (e) => {
@@ -135,15 +138,49 @@ async function captureAudioMs(durationMs) {
   };
 
   source.connect(processor);
+  source.connect(analyser);
   processor.connect(audioContext.destination);
+
+  // Real-time visualization during capture
+  const updateVisualization = () => {
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+
+    // Calculate RMS for meter
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const normalized = (data[i] - 128) / 128;
+      sum += normalized * normalized;
+    }
+
+    const rms = Math.sqrt(sum / data.length);
+    const clamped = Math.min(1, rms * 5);
+    
+    if (meterFill) meterFill.style.width = `${(clamped * 100).toFixed(0)}%`;
+
+    // Update orb visualizer
+    if (window.OrbVisualizer) {
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freqData);
+      window.OrbVisualizer.setAudioData(freqData);
+    }
+  };
+
+  // Update visualization every 50ms
+  const vizInterval = setInterval(updateVisualization, 50);
 
   // Wait for specified duration
   await new Promise((resolve) => setTimeout(resolve, durationMs));
 
   // Clean up
+  clearInterval(vizInterval);
   source.disconnect();
   processor.disconnect();
+  analyser.disconnect();
   audioContext.close();
+  
+  // Reset meter
+  if (meterFill) meterFill.style.width = '0%';
 
   // Combine chunks into single array
   const totalLength = chunks.reduce((len, chunk) => len + chunk.length, 0);

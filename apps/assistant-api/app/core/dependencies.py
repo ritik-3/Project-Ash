@@ -77,6 +77,8 @@ def get_tts_service() -> PiperTTSProvider:
     return PiperTTSProvider(
         voice_model_path=settings.tts_voice_model_path,
         voice_config_path=settings.tts_voice_config_path,
+        voice_preset=settings.tts_voice_preset,
+        voice_cache_dir=settings.tts_voice_cache_dir,
         use_cuda=settings.tts_use_cuda,
         output_device=settings.audio_output_device,
     )

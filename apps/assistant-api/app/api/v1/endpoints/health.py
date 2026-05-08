@@ -14,6 +14,6 @@ async def health_check() -> HealthResponse:
         status="ok",
         service=settings.app_name,
         model=settings.ollama_model,
-        voice_model_ready=bool(settings.tts_voice_model_path),
+        voice_model_ready=bool(settings.tts_voice_model_path or settings.tts_voice_preset),
         wake_word_model=settings.wake_word_model_name,
     )

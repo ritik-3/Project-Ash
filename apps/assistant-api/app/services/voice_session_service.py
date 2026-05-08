@@ -5,6 +5,8 @@ import re
 import logging
 from difflib import SequenceMatcher
 
+import numpy as np
+
 from app.core.config import Settings
 from app.schemas.chat import ChatRequest
 from app.schemas.voice import VoiceTurnResponse

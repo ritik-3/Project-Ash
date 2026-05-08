@@ -80,5 +80,7 @@ Install the root `requirements.txt` from the repository root before running the 
 
 ## Notes
 
-- If `PIPER_VOICE_MODEL_PATH` is not set, TTS falls back to Windows SAPI.
+- Default voice preset is `en_US-lessac-medium`, which is a good fit for a young, friendly, confident assistant voice.
+- If `PIPER_VOICE_MODEL_PATH` is not set, the service will use `PIPER_VOICE_PRESET` and download the voice into `models/piper` on first use.
+- If neither path nor preset is configured, TTS falls back to Windows SAPI.
 - openWakeWord model assets are auto-downloaded on first use.
